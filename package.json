@@ -3,19 +3,23 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "vite",
-    "dev:clean": "rd /s /q \"node_modules\\.vite\" 2>nul & vite",
+    "dev": "vite --host 127.0.0.1 --port 8080",
+    "dev:clean": "rd /s /q \"node_modules\\.vite\" 2>nul & vite --host 127.0.0.1 --port 8080",
     "build": "tsc -p electron/tsconfig.json && vite build",
+    "build:web": "vite build",
     "build:analyze": "ANALYZE=true vite build",
     "build:canva": "BUILD_MODE=canva vite build",
     "build:standalone": "BUILD_MODE=standalone vite build",
-    "preview": "vite preview",
+    "preview": "vite preview --host 127.0.0.1 --port 8080",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "electron:dev": "tsc -p electron/tsconfig.json && electron .",
+    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:dev": "npm run electron:compile && concurrently -k -n vite,electron -c cyan,magenta \"npm run dev\" \"wait-on http://127.0.0.1:8080 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:8080 electron .\"",
+    "electron:open": "npm run electron:compile && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:8080 electron .",
     "dist:electron": "tsc -p electron/tsconfig.json && electron-builder",
+    "local:up": "powershell -NoProfile -File ./scripts/local-up.ps1",
     "build:extension": "vite build && copy public\\manifest.extension.json dist\\manifest.json",
     "deploy:cloudrun": "gcloud run deploy vitrinex-app --source . --port 8080 --allow-unauthenticated"
   },
@@ -78,6 +82,8 @@
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/ui": "^4.0.18",
     "autoprefixer": "^10.4.18",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
     "electron": "^39.2.7",
     "electron-builder": "^24.13.3",
     "jsdom": "^27.4.0",
@@ -89,7 +95,8 @@
     "vite": "^7.3.0",
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-pwa": "^1.2.0",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "wait-on": "^9.5.1"
   },
   "main": "dist-electron/main.js",
   "build": {
@@ -106,5 +113,11 @@
     "win": {
       "target": "nsis"
     }
+  },
+  "allowScripts": {
+    "electron": true,
+    "esbuild": true,
+    "core-js": true,
+    "protobufjs": true
   }
 }

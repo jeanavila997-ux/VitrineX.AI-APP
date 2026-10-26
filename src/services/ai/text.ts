@@ -9,6 +9,12 @@ import {
     Campaign
 } from '../../types';
 import { getGeminiClient } from './gemini';
+import {
+    generateTextLocal,
+    isLocalTextProvider,
+    streamTextLocal,
+    type ChatMessage as LocalChatMessage,
+} from './localProvider';
 
 export interface GenerateTextOptions {
     model?: string;
@@ -26,7 +32,15 @@ export interface GenerateTextOptions {
     tools?: Record<string, unknown>[];
     toolConfig?: Record<string, unknown>;
     userId?: string;
+    /** Força Gemini mesmo com provedor local ativo */
+    forceGemini?: boolean;
 }
+
+/** Tools Gemini-específicos (ex.: googleSearch) não rodam no Ollama. */
+const hasGeminiOnlyTools = (tools?: Record<string, unknown>[]): boolean => {
+    if (!tools?.length) return false;
+    return tools.some((t) => 'googleSearch' in t || 'google_search' in t);
+};
 
 export interface ToolCallResponse {
     functionResponse: {
@@ -62,6 +76,44 @@ const getSystemInstruction = (base?: string, hasTools?: boolean): string | undef
 };
 
 export const generateText = async (prompt: string, options?: GenerateTextOptions): Promise<string> => {
+    // Rota local: Ollama API nativa (+ fallback 9Router). JSON/schema vão via `format`.
+    // Tools Gemini-only (googleSearch) e forceGemini continuam no SDK Google.
+    const canUseLocal =
+        !options?.forceGemini &&
+        isLocalTextProvider() &&
+        !hasGeminiOnlyTools(options?.tools) &&
+        (!options?.tools || options.tools.length === 0);
+
+    if (canUseLocal) {
+        const wantsJson =
+            options?.responseMimeType === 'application/json' || !!options?.responseSchema;
+        const format = options?.responseSchema
+            ? options.responseSchema
+            : wantsJson
+              ? 'json'
+              : undefined;
+
+        let systemInstruction = options?.systemInstruction;
+        if (wantsJson) {
+            const jsonHint =
+                'Responda APENAS com JSON válido (sem cercas markdown ```).';
+            systemInstruction = systemInstruction
+                ? `${systemInstruction}\n\n${jsonHint}`
+                : jsonHint;
+        }
+
+        // Modelos Gemini no .env/UI não existem no Ollama — deixa o default local escolher
+        const looksLikeGeminiModel = !!options?.model && /gemini|veo-/i.test(options.model);
+
+        return generateTextLocal(prompt, {
+            model: looksLikeGeminiModel ? undefined : options?.model,
+            systemInstruction,
+            temperature: options?.temperature,
+            maxOutputTokens: options?.maxOutputTokens,
+            format,
+        });
+    }
+
     const modelToUse = options?.useThinking ? GEMINI_THINKING_MODEL : (options?.model || GEMINI_FLASH_MODEL);
     const defaultTemp = 1.0;
 
@@ -214,15 +266,57 @@ export const sendMessageToChat = async (
         useThinking?: boolean;
         userId?: string;
         tools?: Record<string, unknown>[]
+        forceGemini?: boolean;
     },
     signal?: AbortSignal
 ): Promise<string> => {
+    const promptText =
+        typeof message === 'string'
+            ? message
+            : message.map((p) => (typeof p === 'string' ? p : p.text)).join(' ');
+
+    const canUseLocal =
+        !options.forceGemini &&
+        isLocalTextProvider() &&
+        !hasGeminiOnlyTools(options.tools) &&
+        (!options.tools || options.tools.length === 0);
+
+    if (canUseLocal) {
+        const localMessages: LocalChatMessage[] = [];
+        const system = getSystemInstruction(
+            options.systemInstruction,
+            !!(options.tools || options.useKnowledgeBase)
+        );
+        if (system) {
+            localMessages.push({ role: 'system', content: system });
+        }
+        for (const m of history) {
+            if (!m.text) continue;
+            localMessages.push({
+                role: m.role === 'model' ? 'assistant' : 'user',
+                content: m.text,
+            });
+        }
+        localMessages.push({ role: 'user', content: promptText });
+
+        const looksLikeGeminiModel = !!options.model && /gemini|veo-/i.test(options.model);
+        try {
+            return await streamTextLocal(localMessages, onChunk, {
+                model: looksLikeGeminiModel ? undefined : options.model,
+                temperature: 0.7,
+                signal,
+            });
+        } catch (error) {
+            console.error('Chat local (Ollama/9Router) falhou', error);
+            throw error;
+        }
+    }
+
     const modelToUse = options.useThinking ? GEMINI_THINKING_MODEL : (options.model || GEMINI_PRO_MODEL);
 
     try {
         const client = await getGeminiClient(undefined, options.userId);
 
-        // Convert history to @google/genai format
         const chatHistory: ModelContent[] = history.map(m => {
             const parts: ModelPart[] = [];
 
@@ -245,9 +339,6 @@ export const sendMessageToChat = async (
             };
         });
 
-        const promptText = typeof message === 'string' ? message : message.map(p => typeof p === 'string' ? p : p.text).join(' ');
-
-        // Construct full contents: history + new user message
         const fullContents: ModelContent[] = [
             ...chatHistory,
             { role: 'user', parts: [{ text: promptText }] }
@@ -264,8 +355,6 @@ export const sendMessageToChat = async (
         });
 
         let fullText = '';
-        // In @google/genai, generateContentStream returns an AsyncGenerator directly or an object with a stream property
-        // Let's handle both common patterns
         const chunks = (result as any).stream || result;
 
         for await (const chunk of chunks) {

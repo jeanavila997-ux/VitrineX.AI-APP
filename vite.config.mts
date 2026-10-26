@@ -11,10 +11,11 @@ const buildMode = process.env.BUILD_MODE || 'standalone';
 export default defineConfig({
   base: './',
   server: {
+    // 127.0.0.1 evita o bug Windows em que localhost resolve para ::1
     port: 8080,
-    host: process.env.NODE_ENV === 'production' ? 'localhost' : '0.0.0.0',
+    host: '127.0.0.1',
     strictPort: true,
-    open: true,
+    open: false,
   },
   plugins: [
     react(),

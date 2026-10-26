@@ -236,6 +236,10 @@ declare global {
 
   interface IElectronAPI {
     saveFile: (imageUrl: string, fileName: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+    listCliTools?: () => Promise<Array<{ id: string; label: string; installed: boolean; path?: string }>>;
+    launchCli?: (cliId: string) => Promise<{ success: boolean; error?: string; path?: string; pid?: number }>;
+    getProjectRoot?: () => Promise<string>;
+    openExternal?: (url: string) => Promise<{ success: boolean; error?: string }>;
   }
 
   interface Window {

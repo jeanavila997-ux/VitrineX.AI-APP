@@ -1,5 +1,6 @@
 export * from './gemini';
 export * from './text';
+export * from './localProvider';
 export * from './image';
 export * from './video';
 export * from './audio';

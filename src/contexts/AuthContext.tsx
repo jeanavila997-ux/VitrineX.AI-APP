@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { UserProfile, Role } from '../types';
+import { getAuthRedirectTo, isSupabaseConfigured, supabase } from '../lib/supabase';
+import { UserProfile } from '../types';
 import { getUserProfile } from '../services/core/db';
 
 interface AuthContextType {
@@ -10,7 +10,12 @@ interface AuthContextType {
     profile: UserProfile | null;
     loading: boolean;
     signIn: (email: string, password: string) => Promise<void>;
-    signUp: (email: string, password: string, metadata?: Record<string, unknown>) => Promise<void>;
+    /** Retorna mensagem opcional (ex.: confirme o e-mail). */
+    signUp: (
+        email: string,
+        password: string,
+        metadata?: Record<string, unknown>
+    ) => Promise<{ needsEmailConfirmation?: boolean; message?: string }>;
     signOut: () => Promise<void>;
 }
 
@@ -26,25 +31,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let mounted = true;
 
         const initAuth = async () => {
-            // Check for mock session first
-            // Safe check using centralized config
-            if (!isSupabaseConfigured && localStorage.getItem('mock_session')) {
-                const mockUser: User = {
-                    id: 'mock-user-123',
-                    app_metadata: {},
-                    user_metadata: { full_name: 'Usuário Demo' },
-                    aud: 'authenticated',
-                    created_at: new Date().toISOString(),
-                };
-                setUser(mockUser);
-                setSession({
-                    access_token: 'mock-token',
-                    refresh_token: 'mock-refresh',
-                    expires_in: 3600,
-                    token_type: 'bearer',
-                    user: mockUser
-                });
-                setLoading(false);
+            if (!isSupabaseConfigured) {
+                if (localStorage.getItem('mock_session')) {
+                    const mockUser: User = {
+                        id: 'mock-user-123',
+                        app_metadata: {},
+                        user_metadata: { full_name: 'Usuário Demo' },
+                        aud: 'authenticated',
+                        created_at: new Date().toISOString(),
+                    };
+                    setUser(mockUser);
+                    setSession({
+                        access_token: 'mock-token',
+                        refresh_token: 'mock-refresh',
+                        expires_in: 3600,
+                        token_type: 'bearer',
+                        user: mockUser,
+                    });
+                }
+                if (mounted) setLoading(false);
                 return;
             }
 
@@ -56,38 +61,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setSession(data.session);
                     setUser(data.session?.user ?? null);
                     if (data.session?.user) {
-                        loadProfile(data.session.user.id, data.session.user.email);
+                        await loadProfile(data.session.user.id, data.session.user.email);
                     } else {
                         setLoading(false);
                     }
                 }
             } catch (err) {
-                // Silently handle offline mode but log for dev
                 console.error('Auth initialization error:', err);
                 if (mounted) setLoading(false);
             }
         };
 
-        initAuth();
+        void initAuth();
 
-        // Listen for auth changes safely
         let subscription: { unsubscribe: () => void } | null = null;
-        try {
-            const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-                if (!mounted) return;
-                setSession(session);
-                setUser(session?.user ?? null);
+        if (isSupabaseConfigured) {
+            try {
+                const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+                    if (!mounted) return;
+                    setSession(nextSession);
+                    setUser(nextSession?.user ?? null);
 
-                if (session?.user) {
-                    loadProfile(session.user.id, session.user.email);
-                } else {
-                    setProfile(null);
-                    setLoading(false);
-                }
-            });
-            subscription = data.subscription;
-        } catch (e) {
-            // Silently handle realtime error
+                    if (nextSession?.user) {
+                        void loadProfile(nextSession.user.id, nextSession.user.email);
+                    } else {
+                        setProfile(null);
+                        setLoading(false);
+                    }
+                });
+                subscription = data.subscription;
+            } catch (e) {
+                console.warn('onAuthStateChange failed', e);
+            }
         }
 
         return () => {
@@ -100,30 +105,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
             let userProfile = await getUserProfile(userId);
 
-            // Hardcoded Admin Override
-            if (email === 'jeancarlosmedvet97@outlook.com' || userProfile?.email === 'jeancarlosmedvet97@outlook.com') {
-                userProfile = { ...userProfile, role: 'ADMIN' as any, email: 'jeancarlosmedvet97@outlook.com' };
+            if (!userProfile && email) {
+                // Trigger ainda não criou a linha — perfil mínimo até o próximo refresh
+                userProfile = {
+                    id: userId,
+                    email,
+                    name: email.split('@')[0],
+                    plan: 'free',
+                    role: 'VIEWER',
+                    credits: 50,
+                    businessProfile: {
+                        name: '',
+                        industry: '',
+                        targetAudience: '',
+                        visualStyle: '',
+                    },
+                };
+            }
+
+            if (
+                email === 'jeancarlosmedvet97@outlook.com' ||
+                userProfile?.email === 'jeancarlosmedvet97@outlook.com'
+            ) {
+                userProfile = {
+                    ...(userProfile as UserProfile),
+                    role: 'ADMIN' as UserProfile['role'],
+                    email: 'jeancarlosmedvet97@outlook.com',
+                };
             }
 
             setProfile(userProfile);
         } catch (error) {
             console.error('Error loading user profile:', error);
-            // Fallback for mock/dev if DB fails
             if (email === 'jeancarlosmedvet97@outlook.com') {
                 setProfile({
                     id: userId,
                     name: 'Jean Carlos',
-                    email: email,
-                    role: 'ADMIN' as any,
+                    email,
+                    role: 'ADMIN' as UserProfile['role'],
                     avatar: '',
                     plan: 'enterprise',
                     businessProfile: {
                         name: 'VitrineX',
                         industry: 'Tech',
                         targetAudience: 'General',
-                        visualStyle: 'Modern'
+                        visualStyle: 'Modern',
                     },
-                    credits: 9999
+                    credits: 9999,
                 });
             }
         } finally {
@@ -133,7 +161,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const signIn = async (email: string, password: string) => {
         if (!isSupabaseConfigured) {
-            // Mock Login for development/demo
             console.log('Mode: Mock Login');
 
             const isAdmin = email.toLowerCase() === 'jeancarlosmedvet97@outlook.com';
@@ -144,7 +171,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 user_metadata: { full_name: isAdmin ? 'Jean Carlos' : 'Usuário Demo' },
                 aud: 'authenticated',
                 created_at: new Date().toISOString(),
-                email: email
+                email,
             };
 
             setUser(mockUser);
@@ -153,27 +180,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 refresh_token: 'mock-refresh',
                 expires_in: 3600,
                 token_type: 'bearer',
-                user: mockUser
+                user: mockUser,
             });
 
-            // Set Profile Immediately for Mock
             setProfile({
                 id: mockUser.id,
                 name: mockUser.user_metadata.full_name,
-                email: email,
-                role: (isAdmin ? 'ADMIN' : 'VIEWER') as any,
+                email,
+                role: (isAdmin ? 'ADMIN' : 'VIEWER') as UserProfile['role'],
                 avatar: '',
                 plan: isAdmin ? 'enterprise' : 'free',
                 businessProfile: {
                     name: 'Demo Business',
                     industry: 'Retail',
                     targetAudience: 'Everyone',
-                    visualStyle: 'Standard'
+                    visualStyle: 'Standard',
                 },
-                credits: isAdmin ? 9999 : 50
+                credits: isAdmin ? 9999 : 50,
             });
 
-            // Persist mock session
             localStorage.setItem('mock_session', JSON.stringify({ user: mockUser, isAdmin }));
             return;
         }
@@ -182,72 +207,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (error) throw error;
     };
 
-    const signUp = async (email: string, password: string, metadata?: Record<string, unknown>) => {
+    const signUp = async (
+        email: string,
+        password: string,
+        metadata?: Record<string, unknown>
+    ): Promise<{ needsEmailConfirmation?: boolean; message?: string }> => {
         if (!isSupabaseConfigured) {
-            // Mock Signup
             console.log('Mode: Mock Signup');
-
-            const isAdmin = email.toLowerCase() === 'jeancarlosmedvet97@outlook.com';
-
-            const mockUser: User = {
-                id: 'mock-user-123',
-                app_metadata: {},
-                user_metadata: metadata || { full_name: 'Usuário Demo' },
-                aud: 'authenticated',
-                created_at: new Date().toISOString(),
-                email: email
-            };
-            setUser(mockUser);
-            setSession({
-                access_token: 'mock-token',
-                refresh_token: 'mock-refresh',
-                expires_in: 3600,
-                token_type: 'bearer',
-                user: mockUser
-            });
-
-            // Set Profile
-            setProfile({
-                id: mockUser.id,
-                name: 'Novo Usuário',
-                email: email,
-                role: (isAdmin ? 'ADMIN' : 'VIEWER') as any,
-                avatar: '',
-                plan: 'free',
-                businessProfile: {
-                    name: 'New Business',
-                    industry: 'General',
-                    targetAudience: 'All',
-                    visualStyle: 'Basic'
-                },
-                credits: 15
-            });
-
-            localStorage.setItem('mock_session', 'true');
-            return;
+            await signIn(email, password);
+            return { message: 'Conta demo criada (modo local).' };
         }
 
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
             email,
             password,
             options: {
                 data: metadata,
+                emailRedirectTo: getAuthRedirectTo(),
             },
         });
         if (error) throw error;
+
+        // Confirmação de e-mail ligada → session null até clicar no link
+        if (!data.session) {
+            return {
+                needsEmailConfirmation: true,
+                message:
+                    'Cadastro criado. Confira seu e-mail para confirmar a conta (ou desative “Confirm email” no dashboard do Supabase para testes).',
+            };
+        }
+
+        return { message: 'Conta criada com sucesso.' };
     };
 
     const signOut = async () => {
-        const hasSupabase = import.meta.env.VITE_SUPABASE_URL;
-
-        if (!hasSupabase) {
+        if (!isSupabaseConfigured) {
             setUser(null);
             setSession(null);
             setProfile(null);
             localStorage.removeItem('mock_session');
+            localStorage.removeItem('vitrinex_mock_profile');
             return;
         }
         await supabase.auth.signOut();
+        setUser(null);
+        setSession(null);
+        setProfile(null);
     };
 
     return (

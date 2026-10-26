@@ -28,17 +28,25 @@ export const AuthPage: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [info, setInfo] = useState<string | null>(null);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
+        setInfo(null);
         setLoading(true);
 
         try {
             if (mode === 'login') {
                 await signIn(email, password);
             } else {
-                await signUp(email, password, { full_name: name });
+                const result = await signUp(email, password, { full_name: name });
+                if (result?.needsEmailConfirmation) {
+                    setInfo(result.message || 'Confirme seu e-mail para entrar.');
+                    setMode('login');
+                } else if (result?.message) {
+                    setInfo(result.message);
+                }
             }
         } catch (err: any) {
             console.error("Auth Error:", err);
@@ -52,6 +60,7 @@ export const AuthPage: React.FC = () => {
     const toggleMode = () => {
         setMode(mode === 'login' ? 'signup' : 'login');
         setError(null);
+        setInfo(null);
     };
 
     return (
@@ -91,11 +100,13 @@ export const AuthPage: React.FC = () => {
                                         Modo de Demonstração (Sem Supabase)
                                     </h4>
                                     <p className="text-xs text-yellow-200/80 mb-2">
-                                        O Supabase não foi configurado ou as chaves estão ausentes.
-                                        Você pode entrar com <strong>qualquer e-mail e senha</strong> para testar a interface.
-                                    </p>
-                                    <p className="text-xs text-yellow-200/60 mt-1 italic">
-                                        Para login real, edite o arquivo .env com suas chaves.
+                                        Entre com <strong>qualquer e-mail e senha</strong> para testar a UI.
+                                        Para login real: crie o projeto no Supabase, rode o SQL em{' '}
+                                        <code className="text-[10px]">supabase/migrations/20261026_vitrinex_init.sql</code>
+                                        {' '}e preencha <code className="text-[10px]">VITE_SUPABASE_URL</code> +{' '}
+                                        <code className="text-[10px]">VITE_SUPABASE_ANON_KEY</code> no{' '}
+                                        <code className="text-[10px]">.env</code> (guia:{' '}
+                                        <code className="text-[10px]">docs/SUPABASE_SETUP.md</code>).
                                     </p>
                                 </div>
                             </div>
@@ -123,7 +134,7 @@ export const AuthPage: React.FC = () => {
                         </motion.div>
                     </AnimatePresence>
 
-                    {/* Error Message */}
+                    {/* Error / Info */}
                     <AnimatePresence>
                         {error && (
                             <motion.div
@@ -133,6 +144,17 @@ export const AuthPage: React.FC = () => {
                                 className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400"
                             >
                                 {error}
+                            </motion.div>
+                        )}
+                        {info && (
+                            <motion.div
+                                key="auth-info"
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-sm text-emerald-300"
+                            >
+                                {info}
                             </motion.div>
                         )}
                     </AnimatePresence>

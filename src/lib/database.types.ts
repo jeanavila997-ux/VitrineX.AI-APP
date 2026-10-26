@@ -43,9 +43,12 @@ export type Database = {
                 Row: {
                     ads: Json | null
                     createdAt: string | null
+                    description: string | null
+                    hashtags: string[] | null
                     id: string
                     name: string | null
                     posts: Json | null
+                    strategy: string | null
                     timeline: string | null
                     type: string | null
                     userId: string
@@ -54,9 +57,12 @@ export type Database = {
                 Insert: {
                     ads?: Json | null
                     createdAt?: string | null
+                    description?: string | null
+                    hashtags?: string[] | null
                     id: string
                     name?: string | null
                     posts?: Json | null
+                    strategy?: string | null
                     timeline?: string | null
                     type?: string | null
                     userId: string
@@ -65,13 +71,40 @@ export type Database = {
                 Update: {
                     ads?: Json | null
                     createdAt?: string | null
+                    description?: string | null
+                    hashtags?: string[] | null
                     id?: string
                     name?: string | null
                     posts?: Json | null
+                    strategy?: string | null
                     timeline?: string | null
                     type?: string | null
                     userId?: string
                     video_url?: string | null
+                }
+                Relationships: []
+            }
+            target_audiences: {
+                Row: {
+                    created_at: string
+                    description: string | null
+                    id: string
+                    name: string
+                    user_id: string
+                }
+                Insert: {
+                    created_at?: string
+                    description?: string | null
+                    id?: string
+                    name: string
+                    user_id: string
+                }
+                Update: {
+                    created_at?: string
+                    description?: string | null
+                    id?: string
+                    name?: string
+                    user_id?: string
                 }
                 Relationships: []
             }
@@ -137,27 +170,39 @@ export type Database = {
             }
             schedule: {
                 Row: {
+                    content: string | null
+                    contentId: string | null
+                    contentType: string | null
                     createdAt: string | null
                     datetime: string | null
                     id: string
+                    mediaUrl: string | null
                     platform: string | null
                     status: string | null
                     title: string | null
                     userId: string
                 }
                 Insert: {
+                    content?: string | null
+                    contentId?: string | null
+                    contentType?: string | null
                     createdAt?: string | null
                     datetime?: string | null
                     id: string
+                    mediaUrl?: string | null
                     platform?: string | null
                     status?: string | null
                     title?: string | null
                     userId: string
                 }
                 Update: {
+                    content?: string | null
+                    contentId?: string | null
+                    contentType?: string | null
                     createdAt?: string | null
                     datetime?: string | null
                     id?: string
+                    mediaUrl?: string | null
                     platform?: string | null
                     status?: string | null
                     title?: string | null
@@ -168,67 +213,79 @@ export type Database = {
             trends: {
                 Row: {
                     createdAt: string | null
+                    data: string | null
+                    groundingMetadata: Json | null
                     id: string
-                    popularity: number | null
-                    region: string | null
-                    sentiment: string | null
-                    topic: string | null
+                    query: string | null
+                    score: number | null
+                    sources: Json | null
                     userId: string
                 }
                 Insert: {
                     createdAt?: string | null
+                    data?: string | null
+                    groundingMetadata?: Json | null
                     id: string
-                    popularity?: number | null
-                    region?: string | null
-                    sentiment?: string | null
-                    topic?: string | null
+                    query?: string | null
+                    score?: number | null
+                    sources?: Json | null
                     userId: string
                 }
                 Update: {
                     createdAt?: string | null
+                    data?: string | null
+                    groundingMetadata?: Json | null
                     id?: string
-                    popularity?: number | null
-                    region?: string | null
-                    sentiment?: string | null
-                    topic?: string | null
+                    query?: string | null
+                    score?: number | null
+                    sources?: Json | null
                     userId?: string
                 }
                 Relationships: []
             }
             users: {
                 Row: {
+                    avatar: string | null
                     businessProfile: Json | null
                     contactInfo: Json | null
                     created_at: string
+                    credits: number
                     email: string | null
                     id: string
                     name: string | null
                     phone: string | null
                     plan: string | null
+                    role: string | null
                     status: string | null
                     updated_at: string
                 }
                 Insert: {
+                    avatar?: string | null
                     businessProfile?: Json | null
                     contactInfo?: Json | null
                     created_at?: string
+                    credits?: number
                     email?: string | null
                     id: string
                     name?: string | null
                     phone?: string | null
                     plan?: string | null
+                    role?: string | null
                     status?: string | null
                     updated_at?: string
                 }
                 Update: {
+                    avatar?: string | null
                     businessProfile?: Json | null
                     contactInfo?: Json | null
                     created_at?: string
+                    credits?: number
                     email?: string | null
                     id?: string
                     name?: string | null
                     phone?: string | null
                     plan?: string | null
+                    role?: string | null
                     status?: string | null
                     updated_at?: string
                 }

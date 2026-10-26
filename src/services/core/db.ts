@@ -1,40 +1,69 @@
-import { UserProfile, Post, Ad, Campaign, Trend, LibraryItem, ScheduleEntry, TargetAudience } from '../../types';
-import { supabase } from '../../lib/supabase';
+import { UserProfile, Post, Ad, Campaign, Trend, LibraryItem, ScheduleEntry, TargetAudience, BusinessProfile } from '../../types';
+import { isSupabaseConfigured, supabase } from '../../lib/supabase';
 
 // Real Supabase Database Service
 // Replaces the previous Mock Database Service.
 
+const defaultBusinessProfile = (): BusinessProfile => ({
+    name: '',
+    industry: '',
+    targetAudience: '',
+    visualStyle: '',
+});
+
+/** Normaliza a linha de public.users para o UserProfile da UI. */
+export const mapDbUserToProfile = (row: Record<string, unknown>): UserProfile => {
+    const planRaw = String(row.plan || 'free');
+    const plan = (['free', 'premium', 'enterprise'].includes(planRaw)
+        ? planRaw
+        : 'free') as UserProfile['plan'];
+
+    return {
+        id: String(row.id),
+        email: String(row.email || ''),
+        name: (row.name as string) || undefined,
+        phone: (row.phone as string) || undefined,
+        role: (row.role as UserProfile['role']) || 'VIEWER',
+        plan,
+        status: (row.status as UserProfile['status']) || 'active',
+        avatar: (row.avatar as string) || undefined,
+        credits: typeof row.credits === 'number' ? row.credits : 50,
+        businessProfile: (row.businessProfile as BusinessProfile) || defaultBusinessProfile(),
+        contactInfo: (row.contactInfo as UserProfile['contactInfo']) || {},
+    };
+};
+
 // --- Helper for Errors ---
 const handleError = (context: string, error: any) => {
     console.error(`Error in ${context}:`, error);
-    // Podemos relançar ou retornar null dependendo da estratégia.
-    // Aqui vamos relançar para que a UI possa mostrar o Toast de erro.
     throw new Error(error.message || `Falha em ${context}`);
 };
 
 // --- User Profile Operations ---
 export const getUserProfile = async (userId: string): Promise<UserProfile | null> => {
     // Check for Mock User
-    if (userId === 'mock-user-123') {
+    if (userId === 'mock-user-123' || userId === 'admin-jean-id') {
         const localMock = localStorage.getItem('vitrinex_mock_profile');
         if (localMock) {
             return JSON.parse(localMock) as UserProfile;
         }
         return {
-            id: 'mock-user-123',
+            id: userId,
             email: 'demo@vitrinex.ai',
-            full_name: 'Usuário Demo',
-            plan: 'premium',
-            created_at: new Date().toISOString(),
+            name: 'Usuário Demo',
+            plan: 'free',
+            role: 'VIEWER',
             businessProfile: {
                 name: 'Minha Loja Demo',
                 industry: 'Varejo',
                 targetAudience: 'Jovens adultos',
                 visualStyle: 'Moderno'
             },
-            credits: 1000
-        } as UserProfile;
+            credits: 50
+        };
     }
+
+    if (!isSupabaseConfigured) return null;
 
     try {
         const { data, error } = await supabase
@@ -47,34 +76,45 @@ export const getUserProfile = async (userId: string): Promise<UserProfile | null
             if (error.code === 'PGRST116') return null; // Not found
             throw error;
         }
-        return data as UserProfile;
+        return mapDbUserToProfile(data as Record<string, unknown>);
     } catch (error) {
         console.warn('getUserProfile failed (likely offline/no-config). Returning null.', error);
-        return null; // Fail gracefully
+        return null;
     }
 };
 
 export const updateUserProfile = async (userId: string, profile: Partial<UserProfile>): Promise<void> => {
     try {
-        if (userId === 'mock-user-123') {
-            // Persist mock updates to local storage so they survive refresh
+        if (userId === 'mock-user-123' || userId === 'admin-jean-id') {
             const current = await getUserProfile(userId);
             const updated = { ...current, ...profile };
             localStorage.setItem('vitrinex_mock_profile', JSON.stringify(updated));
             return;
         }
 
+        if (!isSupabaseConfigured) return;
+
+        const patch: Record<string, unknown> = {};
+        if (profile.name !== undefined) patch.name = profile.name;
+        if (profile.email !== undefined) patch.email = profile.email;
+        if (profile.phone !== undefined) patch.phone = profile.phone;
+        if (profile.plan !== undefined) patch.plan = profile.plan;
+        if (profile.status !== undefined) patch.status = profile.status;
+        if (profile.role !== undefined) patch.role = profile.role;
+        if (profile.avatar !== undefined) patch.avatar = profile.avatar;
+        if (profile.credits !== undefined) patch.credits = profile.credits;
+        if (profile.businessProfile !== undefined) patch.businessProfile = profile.businessProfile;
+        if (profile.contactInfo !== undefined) patch.contactInfo = profile.contactInfo;
+
         const { error } = await supabase
             .from('users')
-            .update(profile)
+            .update(patch)
             .eq('id', userId);
 
         if (error) throw error;
     } catch (error) {
         console.warn('updateUserProfile failed, persisting locally if possible', error);
-        // Fallback for real users who are offline? 
-        // We can't easily merge partial profile updates offline without complex sync.
-        // For now, just suppress the error or let it slide.
+        throw error;
     }
 };
 
@@ -172,7 +212,7 @@ export const saveCampaign = async (campaign: Campaign): Promise<Campaign> => {
             .single();
 
         if (error) throw error;
-        return data as Campaign;
+        return data as unknown as Campaign;
     } catch (error) {
         console.warn('saveCampaign failed, fallback to local', error);
         return saveLocalData('campaigns', campaign);
@@ -188,7 +228,7 @@ export const getCampaigns = async (userId: string): Promise<Campaign[]> => {
             .eq('userId', userId)
             .order('createdAt', { ascending: false });
 
-        if (!error && data) supabaseItems = data as Campaign[];
+        if (!error && data) supabaseItems = data as unknown as Campaign[];
     } catch (error) {
         console.warn('getCampaigns failed', error);
     }
@@ -210,7 +250,7 @@ export const saveTrend = async (trend: Trend): Promise<Trend> => {
             .select()
             .single();
         if (error) throw error;
-        return data as Trend;
+        return data as unknown as Trend;
     } catch (e) {
         console.warn('saveTrend failed, fallback to local', e);
         return saveLocalData('trends', trend);
@@ -227,7 +267,7 @@ export const getTrends = async (userId: string): Promise<Trend[]> => {
             .eq('userId', userId)
             .order('createdAt', { ascending: false });
 
-        if (!error && data) supabaseItems = data as Trend[];
+        if (!error && data) supabaseItems = data as unknown as Trend[];
     } catch (error) {
         console.warn('getTrends failed', error);
     }
@@ -251,7 +291,7 @@ export const getTargetAudiences = async (userId: string): Promise<TargetAudience
         .order('created_at', { ascending: false });
 
     if (error) handleError('getTargetAudiences', error);
-    return (data as TargetAudience[]) || [];
+    return (data as unknown as TargetAudience[]) || [];
 };
 
 export const createTargetAudience = async (audience: Omit<TargetAudience, 'id' | 'created_at'>): Promise<TargetAudience> => {
@@ -262,7 +302,7 @@ export const createTargetAudience = async (audience: Omit<TargetAudience, 'id' |
         .single();
 
     if (error) handleError('createTargetAudience', error);
-    return data as TargetAudience;
+    return data as unknown as TargetAudience;
 };
 
 export const updateTargetAudience = async (audienceId: string, updates: Partial<TargetAudience>): Promise<TargetAudience> => {
@@ -274,7 +314,7 @@ export const updateTargetAudience = async (audienceId: string, updates: Partial<
         .single();
 
     if (error) handleError('updateTargetAudience', error);
-    return data as TargetAudience;
+    return data as unknown as TargetAudience;
 };
 
 export const deleteTargetAudience = async (audienceId: string): Promise<void> => {
